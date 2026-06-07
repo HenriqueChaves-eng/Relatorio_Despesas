@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#202124">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>Relatório de Despesas | Agres</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css?v=8">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand-row">
+      <img class="brand-logo" src="agres-only-logo.svg?v=1" alt="Agres">
+      <span class="offline-status">Dados Locais</span>
+    </div>
+    <div class="header-summary" aria-label="Resumo do relatório">
+      <div>
+        <span>Notas</span>
+        <strong id="header-count">0</strong>
+      </div>
+      <div>
+        <span>Datas</span>
+        <strong id="date-count">0</strong>
+      </div>
+      <div class="header-total">
+        <span>Total</span>
+        <strong id="grand-total">R$ 0,00</strong>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="capture-panel" aria-labelledby="capture-title">
+      <div class="section-heading">
+        <div>
+          <p class="step">Novo Lançamento</p>
+          <h1 id="capture-title">Registrar Despesa</h1>
+        </div>
+        <button id="cancel-edit" class="text-button hidden" type="button">Cancelar Edição</button>
+      </div>
+
+      <form id="expense-form">
+        <input id="editing-id" type="hidden">
+
+        <fieldset>
+          <legend><span>1</span> Dados da Despesa</legend>
+          <div class="field-grid">
+            <label>
+              <span>Data</span>
+              <input id="expense-date" type="date" required>
+            </label>
+            <label>
+              <span>Valor</span>
+              <div class="money-input">
+                <span>R$</span>
+                <input id="expense-amount" type="text" inputmode="decimal" placeholder="0,00" required>
+              </div>
+            </label>
+          </div>
+
+          <label>
+            <span>Categoria</span>
+            <select id="expense-category" required></select>
+          </label>
+
+          <label>
+            <span>Descrição <small>Opcional</small></span>
+            <input id="expense-description" type="text" maxlength="80" placeholder="Ex.: almoço, hotel, lavação">
+          </label>
+        </fieldset>
+
+        <fieldset>
+          <legend><span>2</span> Foto da Nota</legend>
+          <label class="photo-field" for="expense-photo">
+            <input id="expense-photo" type="file" accept="image/*">
+            <span class="photo-action">Selecionar Foto da Galeria</span>
+            <small id="photo-status">Nenhuma Foto Selecionada</small>
+          </label>
+          <div id="photo-preview-wrap" class="photo-preview-wrap hidden">
+            <img id="photo-preview" alt="Pré-visualização da nota">
+            <span>Foto Pronta para Salvar</span>
+          </div>
+        </fieldset>
+
+        <button id="save-expense" class="primary-button" type="submit">
+          <span class="button-step">3</span>
+          <span>Adicionar Despesa</span>
+        </button>
+      </form>
+      <p id="form-message" class="message" role="status"></p>
+    </section>
+
+    <section class="summary-section" aria-labelledby="summary-title">
+      <div class="section-heading">
+        <div>
+          <p class="step">Conferência</p>
+          <h2 id="summary-title">Totais do Relatório</h2>
+        </div>
+        <span id="expense-count" class="count-badge">0 notas</span>
+      </div>
+      <div id="limit-warning" class="warning hidden"></div>
+      <div id="summary-list" class="summary-list empty-state">Nenhuma despesa registrada.</div>
+    </section>
+
+    <section class="entries-section" aria-labelledby="entries-title">
+      <div class="section-heading">
+        <div>
+          <p class="step">Revisão</p>
+          <h2 id="entries-title">Notas Registradas</h2>
+        </div>
+      </div>
+      <div id="entries-list" class="entries-list empty-state">As notas aparecerão aqui.</div>
+    </section>
+
+    <section class="export-section" aria-labelledby="export-title">
+      <div class="section-heading">
+        <div>
+          <p class="step">Fechamento</p>
+          <h2 id="export-title">Enviar para o PC</h2>
+        </div>
+      </div>
+      <button id="export-package" class="primary-button export-button" type="button">Gerar Pacote para o PC</button>
+      <p id="export-message" class="message" role="status"></p>
+
+      <details class="danger-zone">
+        <summary>Opções do Coletor</summary>
+        <button id="clear-all" class="danger-button" type="button">Apagar Todos os Lançamentos</button>
+      </details>
+    </section>
+  </main>
+
+  <template id="entry-template">
+    <article class="entry">
+      <img class="entry-photo" alt="">
+      <div class="entry-data">
+        <div class="entry-topline">
+          <span class="entry-date"></span>
+          <strong class="entry-amount"></strong>
+        </div>
+        <p class="entry-category"></p>
+        <p class="entry-description"></p>
+        <div class="entry-actions">
+          <button class="edit-button" type="button">Editar</button>
+          <button class="delete-button" type="button">Excluir</button>
+        </div>
+      </div>
+    </article>
+  </template>
+
+  <dialog id="clear-confirm-dialog" class="confirm-dialog">
+    <form method="dialog" class="confirm-dialog-content">
+      <div class="confirm-dialog-heading">
+        <p class="step">Confirmação Obrigatória</p>
+        <h2>Apagar Todos os Lançamentos?</h2>
+      </div>
+      <p id="clear-confirm-summary" class="confirm-dialog-text"></p>
+      <p class="confirm-dialog-warning">Esta ação não pode ser desfeita.</p>
+      <label>
+        <span>Digite <strong>APAGAR</strong> para Confirmar</span>
+        <input id="clear-confirm-input" type="text" autocomplete="off" autocapitalize="characters" placeholder="APAGAR">
+      </label>
+      <div class="confirm-dialog-actions">
+        <button id="cancel-clear" class="secondary-button" type="button">Cancelar</button>
+        <button id="confirm-clear" class="danger-confirm-button" type="button" disabled>Apagar Definitivamente</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="app.js?v=8"></script>
+</body>
+</html>
