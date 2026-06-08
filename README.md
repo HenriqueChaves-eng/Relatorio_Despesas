@@ -1,48 +1,46 @@
-# Publicar o Coletor Agres no GitHub Pages
+# Relatorio de Despesas Agres
 
-O coletor funciona como um aplicativo web instalavel no iPhone e iPad. Os lancamentos
-e as fotos ficam armazenados localmente no aparelho e nao sao enviados ao GitHub.
+Este repositorio guarda os dois componentes do processo:
 
-## Criar o repositorio
+- Coletor offline para iPhone e iPad pelo GitHub Pages.
+- Gerador local de Excel e PDF para rodar no PC.
 
-1. Acesse `https://github.com/new`.
-2. Use o nome `Relatorio_Despesas`.
-3. Escolha `Public`.
-4. Nao marque as opcoes para criar README, `.gitignore` ou licenca.
-5. Clique em `Create repository`.
+O coletor fica publicado em HTTPS para instalacao no iPhone/iPad. O gerador nao precisa ser
+publicado na nuvem: ele roda no proprio computador.
 
-## Enviar os arquivos
+## Enderecos
 
-1. Na pagina do repositorio, clique em `uploading an existing file`.
-2. Abra a pasta `PUBLICAR_GITHUB_PAGES_COLETOR_AGRES`.
-3. Arraste todos os arquivos da pasta para a area de upload do GitHub.
-4. Clique em `Commit changes`.
+- Coletor offline: `https://henriquechaves-eng.github.io/Relatorio_Despesas/`
+- Gerador local: `http://127.0.0.1:8502`
 
-## Ativar o GitHub Pages
+## Publicar o coletor offline
 
-1. No repositorio, abra `Settings`.
-2. No menu lateral, abra `Pages`.
-3. Em `Build and deployment`, escolha `Deploy from a branch`.
-4. Selecione a branch `main`, a pasta `/(root)` e clique em `Save`.
-5. Aguarde a publicacao.
+No GitHub, abra `Settings` > `Pages` e configure:
 
-O endereco publicado sera:
+- Source: `Deploy from a branch`
+- Branch: `main`
+- Folder: `/(root)`
 
-`https://henriquechaves-eng.github.io/Relatorio_Despesas/`
+O GitHub Pages usa o arquivo `index.html` da raiz.
 
-## Instalar no iPhone ou iPad
+## Rodar o gerador no PC
 
-1. Abra o endereco publicado usando o Safari.
-2. Toque em `Compartilhar`.
-3. Toque em `Adicionar a Tela de Inicio`.
-4. Ative `Abrir como App`, se a opcao aparecer.
-5. Abra o aplicativo uma vez com internet.
-6. Ative o modo aviao e abra novamente para validar o funcionamento offline.
+1. Baixe ou atualize os arquivos deste repositorio no PC.
+2. Execute `iniciar_app.bat`.
+3. Abra `http://127.0.0.1:8502`.
+4. Importe o ZIP gerado no iPhone/iPad.
 
-## Cuidados importantes
+O gerador usa Streamlit localmente. Nenhum comprovante precisa ser enviado para servidor externo.
 
-- O codigo do coletor sera publico, mas os lancamentos e comprovantes permanecem no aparelho.
-- Exporte o pacote ZIP regularmente. Apagar os dados do Safari ou remover o aplicativo pode
-  apagar os lancamentos ainda nao exportados.
-- Para atualizar o coletor, envie os novos arquivos ao mesmo repositorio. O aplicativo
-  instalara a nova versao quando voltar a ficar online.
+## Fluxo de uso
+
+1. Registre despesas e comprovantes no coletor instalado no iPhone/iPad.
+2. Gere o ZIP do coletor.
+3. Abra o gerador no PC e selecione o ZIP.
+4. Revise os lancamentos.
+5. Baixe o pacote final contendo o Excel preenchido e o PDF dos comprovantes.
+
+## Privacidade
+
+O coletor salva despesas e fotos localmente no aparelho. O ZIP e importado no proprio PC pelo
+gerador local.

@@ -15,6 +15,11 @@ const DB_VERSION = 1;
 const STORE_NAME = "expenses";
 const MAX_DATES = 8;
 const MAX_OTHER_EXPENSES = 4;
+const MAX_EXPENSES = 200;
+const MAX_PHOTO_BYTES = 25 * 1024 * 1024;
+const MAX_PACKAGE_BYTES = 200 * 1024 * 1024;
+const LAST_MUTATION_KEY = "relatorio-despesas-last-mutation";
+const LAST_EXPORT_KEY = "relatorio-despesas-last-export";
 
 function displayCategory(category) {
   if (category === "Transporte/ taxi") return "Transporte / Táxi";
@@ -58,6 +63,7 @@ let retainedPhoto = null;
 let retainedPhotoName = "";
 let retainedPhotoType = "";
 let previewUrl = "";
+let invalidExpenseCount = 0;
 const objectUrls = [];
 
 function openDatabase() {
@@ -79,10 +85,34 @@ async function withStore(mode, operation) {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(STORE_NAME, mode);
     const store = transaction.objectStore(STORE_NAME);
-    const request = operation(store);
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-    transaction.oncomplete = () => db.close();
+    let request;
+    let result;
+    let settled = false;
+    const fail = error => {
+      if (settled) return;
+      settled = true;
+      db.close();
+      reject(error || new Error("Falha na transação do armazenamento local."));
+    };
+    try {
+      request = operation(store);
+    } catch (error) {
+      transaction.abort();
+      fail(error);
+      return;
+    }
+    request.onsuccess = () => {
+      result = request.result;
+    };
+    request.onerror = () => fail(request.error);
+    transaction.onerror = () => fail(transaction.error);
+    transaction.onabort = () => fail(transaction.error);
+    transaction.oncomplete = () => {
+      if (settled) return;
+      settled = true;
+      db.close();
+      resolve(result);
+    };
   });
 }
 
@@ -100,6 +130,26 @@ function deleteExpenseRecord(id) {
 
 function clearExpenseRecords() {
   return withStore("readwrite", store => store.clear());
+}
+
+function markUnsavedChanges() {
+  try {
+    localStorage.setItem(LAST_MUTATION_KEY, new Date().toISOString());
+  } catch (_) {}
+}
+
+function markExported() {
+  try {
+    localStorage.setItem(LAST_EXPORT_KEY, new Date().toISOString());
+  } catch (_) {}
+}
+
+function hasUnsavedChanges() {
+  try {
+    return String(localStorage.getItem(LAST_MUTATION_KEY) || "") > String(localStorage.getItem(LAST_EXPORT_KEY) || "");
+  } catch (_) {
+    return true;
+  }
 }
 
 function todayIso() {
@@ -169,6 +219,50 @@ function fileExtension(name, type) {
   return ".jpg";
 }
 
+async function sha256Hex(blob) {
+  if (!globalThis.crypto?.subtle) return "";
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+  return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
+}
+
+function sanitizeLoadedExpenses(records) {
+  if (!Array.isArray(records)) throw new Error("Formato inesperado no armazenamento local.");
+  const validRecords = [];
+  invalidExpenseCount = 0;
+  records.forEach(record => {
+    const valid =
+      record &&
+      typeof record.id === "string" &&
+      /^\d{4}-\d{2}-\d{2}$/.test(String(record.date || "")) &&
+      Number(record.amount) > 0 &&
+      CATEGORIES.includes(record.category) &&
+      record.photoBlob instanceof Blob &&
+      record.photoBlob.size > 0;
+    if (!valid) {
+      invalidExpenseCount += 1;
+      return;
+    }
+    validRecords.push(record);
+  });
+  return validRecords;
+}
+
+async function loadSafeExpenses() {
+  return sanitizeLoadedExpenses(await loadExpenses());
+}
+
+function storageWarningText() {
+  if (!invalidExpenseCount) return "";
+  return `${invalidExpenseCount} lançamento(s) corrompido(s) foram encontrados no armazenamento local e não serão incluídos automaticamente. Refaça esses lançamentos antes de apagar os dados.`;
+}
+
+function showStorageWarning() {
+  const message = storageWarningText();
+  if (!message) return;
+  elements.formMessage.textContent = message;
+  elements.exportMessage.textContent = message;
+}
+
 function formulaForAmounts(amounts) {
   return "=" + amounts.map(value => Number(value).toFixed(2)).join("+");
 }
@@ -224,7 +318,9 @@ function openClearConfirmation() {
   }
   const total = expenses.reduce((sum, item) => sum + Number(item.amount), 0);
   elements.clearConfirmSummary.textContent =
-    `${expenses.length} ${expenses.length === 1 ? "lançamento será apagado" : "lançamentos serão apagados"}, totalizando ${formatMoney(total)}.`;
+    `${expenses.length} ${expenses.length === 1 ? "lançamento será apagado" : "lançamentos serão apagados"}, totalizando ${formatMoney(total)}.` +
+    (invalidExpenseCount ? ` ${invalidExpenseCount} lançamento(s) corrompido(s) também serão apagados.` : "") +
+    (hasUnsavedChanges() ? " Existem alterações que ainda não foram exportadas." : "");
   elements.clearConfirmInput.value = "";
   elements.confirmClear.disabled = true;
   elements.clearConfirmDialog.showModal();
@@ -328,9 +424,15 @@ function startEdit(id) {
 
 async function removeExpense(id) {
   if (!confirm("Excluir este lançamento?")) return;
-  await deleteExpenseRecord(id);
-  expenses = await loadExpenses();
-  render();
+  try {
+    await deleteExpenseRecord(id);
+    markUnsavedChanges();
+    expenses = await loadSafeExpenses();
+    render();
+    showStorageWarning();
+  } catch (error) {
+    elements.exportMessage.textContent = `Não foi possível excluir: ${error.message || "erro desconhecido"}.`;
+  }
 }
 
 async function handleSubmit(event) {
@@ -344,6 +446,14 @@ async function handleSubmit(event) {
   }
   if (!selectedPhoto) {
     elements.formMessage.textContent = "Selecione a foto da nota.";
+    return;
+  }
+  if (!selectedPhoto.size || selectedPhoto.size > MAX_PHOTO_BYTES) {
+    elements.formMessage.textContent = `A foto deve ter entre 1 byte e ${Math.floor(MAX_PHOTO_BYTES / 1024 / 1024)} MB.`;
+    return;
+  }
+  if (!elements.editingId.value && expenses.length >= MAX_EXPENSES) {
+    elements.formMessage.textContent = `O coletor aceita no máximo ${MAX_EXPENSES} lançamentos por pacote.`;
     return;
   }
 
@@ -366,10 +476,12 @@ async function handleSubmit(event) {
     };
 
     await saveExpenseRecord(record);
-    expenses = await loadExpenses();
+    markUnsavedChanges();
+    expenses = await loadSafeExpenses();
     resetForm();
     render();
     elements.formMessage.textContent = "Despesa salva no aparelho.";
+    showStorageWarning();
   } catch (error) {
     elements.formMessage.textContent = `Não foi possível salvar: ${error.message || "erro desconhecido"}.`;
   } finally {
@@ -471,9 +583,21 @@ async function exportPackage() {
     elements.exportMessage.textContent = "Registre pelo menos uma despesa.";
     return;
   }
+  if (invalidExpenseCount && !confirm(`${storageWarningText()}\n\nDeseja gerar o pacote somente com os lançamentos válidos?`)) {
+    return;
+  }
   const missingPhoto = ordered.find(item => !item.photoBlob);
   if (missingPhoto) {
     elements.exportMessage.textContent = "Existe lançamento sem foto.";
+    return;
+  }
+  if (ordered.length > MAX_EXPENSES) {
+    elements.exportMessage.textContent = `O pacote excede o limite de ${MAX_EXPENSES} lançamentos.`;
+    return;
+  }
+  const totalPhotoBytes = ordered.reduce((total, item) => total + Number(item.photoBlob?.size || 0), 0);
+  if (!totalPhotoBytes || totalPhotoBytes > MAX_PACKAGE_BYTES) {
+    elements.exportMessage.textContent = `As fotos devem totalizar no máximo ${Math.floor(MAX_PACKAGE_BYTES / 1024 / 1024)} MB.`;
     return;
   }
 
@@ -484,6 +608,7 @@ async function exportPackage() {
     const sequence = index + 1;
     const extension = fileExtension(expense.photoName, expense.photoType);
     const photoPath = `notas/${String(sequence).padStart(3, "0")}_${expense.date}_${slug(expense.category)}${extension}`;
+    const photoSha256 = await sha256Hex(expense.photoBlob);
     files.push({ name: photoPath, data: expense.photoBlob });
     manifestExpenses.push({
       sequence,
@@ -492,6 +617,8 @@ async function exportPackage() {
       description: expense.description || "",
       amount: Number(expense.amount).toFixed(2),
       photo: photoPath,
+      photo_size: expense.photoBlob.size,
+      photo_sha256: photoSha256,
       created_at: expense.createdAt
     });
   }
@@ -505,8 +632,10 @@ async function exportPackage() {
   }));
   const manifest = {
     format: "relatorio-despesas-mobile",
-    version: 1,
+    version: 2,
     exported_at: new Date().toISOString(),
+    expense_count: manifestExpenses.length,
+    photo_bytes: totalPhotoBytes,
     expenses: manifestExpenses,
     summary
   };
@@ -539,8 +668,11 @@ async function exportPackage() {
     document.body.append(link);
     link.click();
     link.remove();
+    markExported();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
-    elements.exportMessage.textContent = "Pacote gerado. Envie o ZIP para o PC.";
+    elements.exportMessage.textContent =
+      "Pacote gerado e verificado. Confirme o arquivo em Downloads antes de apagar lançamentos." +
+      (invalidExpenseCount ? ` Atenção: ${invalidExpenseCount} lançamento(s) corrompido(s) não foram incluídos.` : "");
   } catch (error) {
     elements.exportMessage.textContent = `Não foi possível gerar o pacote: ${error.message}`;
   } finally {
@@ -550,6 +682,9 @@ async function exportPackage() {
 }
 
 async function initialize() {
+  if (navigator.storage?.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
   CATEGORIES.forEach(category => {
     const option = document.createElement("option");
     option.value = category;
@@ -558,8 +693,9 @@ async function initialize() {
   });
   elements.date.value = todayIso();
   elements.category.value = CATEGORIES[1];
-  expenses = await loadExpenses();
+  expenses = await loadSafeExpenses();
   render();
+  showStorageWarning();
 
   elements.form.addEventListener("submit", handleSubmit);
   elements.cancelEdit.addEventListener("click", resetForm);
@@ -584,6 +720,7 @@ async function initialize() {
     if (elements.clearConfirmInput.value.trim().toUpperCase() !== "APAGAR") return;
     await clearExpenseRecords();
     expenses = [];
+    markUnsavedChanges();
     resetForm();
     render();
     closeClearConfirmation();
